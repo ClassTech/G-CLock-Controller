@@ -10,21 +10,27 @@ import ujson
 import gc
 
 # --- Constants ---
-#STEPPER_PINS = [Pin(4, Pin.OUT), Pin(5, Pin.OUT), Pin(6, Pin.OUT), Pin(7, Pin.OUT)]
-STEPPER_PINS = [Pin(3, Pin.OUT), Pin(4, Pin.OUT), Pin(5, Pin.OUT), Pin(6, Pin.OUT)]
+# CORRECTED PIN MAPPING (XIAO ESP32C3)
+# Stepper on D0, D1, D2, D3 -> GPIO 2, 3, 4, 5
+STEPPER_PINS = [Pin(2, Pin.OUT), Pin(3, Pin.OUT), Pin(4, Pin.OUT), Pin(5, Pin.OUT)]
+
 STEPS_PER_INCH = 6400
 STEP_DELAY_MS = 3
 MAX_TOTAL_TRAVEL_INCH = 0.2
 STEP_SEQUENCE = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 0]]
-PIEZO_PIN = 8
+
+# CORRECTED PIEZO PIN
+# Piezo on D6 -> GPIO 21
+PIEZO_PIN = 21
+
 DEBOUNCE_US = 500000
 EXPECTED_BEAT_PERIOD = 0.95
 STATE_FILE = "pendulum_state.json"
 
 # Reduced buffer sizes for memory optimization
-LOG_BUFFER_SIZE = 50  # Reduced from 100
-BEAT_HISTORY_SIZE = 40  # Reduced from 60
-TICK_TOCK_SIZE = 20     # Reduced from 30
+LOG_BUFFER_SIZE = 50  
+BEAT_HISTORY_SIZE = 40  
+TICK_TOCK_SIZE = 20     
 
 class PendulumController:
     def __init__(self):
@@ -346,10 +352,10 @@ class PendulumController:
         _thread.start_new_thread(webserver.runServer, 
                                (self.pendulum_state, self.log_buffer, self.log_msg, self.save_state))
         
-        # Setup piezo interrupt
-        piezo_pin = Pin(PIEZO_PIN, Pin.IN)
+        # Setup piezo interrupt with CRITICAL PULL-UP FIX
+        piezo_pin = Pin(PIEZO_PIN, Pin.IN, Pin.PULL_UP)
         piezo_pin.irq(trigger=Pin.IRQ_FALLING, handler=self.piezo_interrupt_handler)
-        self.log_msg(f"Piezo tick detector initialized on Pin {PIEZO_PIN}.")
+        self.log_msg(f"Piezo tick detector initialized on Pin {PIEZO_PIN} (with PULL_UP).")
         
         # Force initial garbage collection and show memory status
         gc.collect()

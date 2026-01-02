@@ -13,16 +13,20 @@ def connectWifi(ssid, password, hostname="pendulum-clock", timeout=15):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
 
-    # Try to set hostname - some firmware versions don't support this
+    # --- CRITICAL FIX: Disable WiFi Power Save Mode ---
+    try:
+        wlan.config(pm=0xa11140) 
+    except:
+        pass 
+
     try:
         wlan.config(dhcp_hostname=hostname)
     except (TypeError, AttributeError):
-        # Silently continue if hostname setting not supported
         pass
 
     if not wlan.isconnected():
         print(f"Connecting to Wi-Fi SSID: {ssid}...")
-        wlan.connect(ssid, password)
+        wlan.connect(ssid, password, hostname)
 
         start_time = time.time()
         dot_count = 0
@@ -36,18 +40,15 @@ def connectWifi(ssid, password, hostname="pendulum-clock", timeout=15):
             time.sleep(1)
             print(".", end="")
             
-            # Periodic garbage collection during connection
             dot_count += 1
             if dot_count % 10 == 0:
                 gc.collect()
                 
-        print()  # New line after dots
+        print() 
 
     if wlan.isconnected():
         ip_addr = wlan.ifconfig()[0]
         print(f"Wi-Fi connected. IP Address: {ip_addr}")
-        
-        # Force garbage collection after successful connection
         gc.collect()
     
     return wlan

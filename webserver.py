@@ -8,7 +8,6 @@ import machine
 import ucollections
 import gc
 
-# Pre-allocate common responses with CORS headers
 HTTP_200_JSON = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n'
 HTTP_200_HTML = b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n'
 HTTP_404 = b'HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\nNot Found'
@@ -17,7 +16,6 @@ HTTP_OPTIONS = b'HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Con
 OK_RESPONSE = b'{"status":"ok"}'
 
 def _parse_json_body(client, headers_raw):
-    """Parse JSON body from request with error handling"""
     try:
         headers = headers_raw.split(b'\r\n')
         content_length_header = [h for h in headers if h.lower().startswith(b'content-length:')]
@@ -30,7 +28,6 @@ def _parse_json_body(client, headers_raw):
         return None
 
 def send_response(client, body, content_type="application/json"):
-    """Send HTTP response efficiently"""
     if content_type == "application/json":
         client.send(HTTP_200_JSON)
     else:
@@ -42,13 +39,10 @@ def send_response(client, body, content_type="application/json"):
         client.sendall(body.encode('utf-8'))
 
 def send_json_ok(client):
-    """Send simple OK JSON response"""
     client.send(HTTP_200_JSON)
     client.send(OK_RESPONSE)
 
-# --- Request Handlers ---
 def serve_static_file(client, file_path, content_type):
-    """Serve static files with chunked reading"""
     try:
         if content_type == "text/html":
             client.send(HTTP_200_HTML)
@@ -57,17 +51,27 @@ def serve_static_file(client, file_path, content_type):
         
         with open(file_path, 'r') as f:
             while True:
-                chunk = f.read(512)  # Read in small chunks
+                chunk = f.read(512) 
                 if not chunk: 
                     break
                 client.sendall(chunk.encode('utf-8'))
     except OSError:
         client.send(HTTP_404)
 
-def handle_status_request(client, pendulum_state, **kwargs):
-    """Return essential system status - reduced data to save memory"""
+# --- NEW: Lightweight Beat Endpoint ---
+def handle_beat_request(client, pendulum_state, **kwargs):
+    """Returns just the tick count for fast polling"""
     try:
-        # Only send essential fields to reduce memory usage
+        val = pendulum_state.get('tickCount', 0)
+        # Manually build JSON string to save memory/cpu
+        resp = '{"t":' + str(val) + '}'
+        client.send(HTTP_200_JSON)
+        client.send(resp.encode('utf-8'))
+    except:
+        client.send(HTTP_400)
+
+def handle_status_request(client, pendulum_state, **kwargs):
+    try:
         essential_state = {
             'currPosIn': pendulum_state.get('currPosIn', 0.0),
             'swingCount': pendulum_state.get('swingCount', 0),
@@ -80,37 +84,32 @@ def handle_status_request(client, pendulum_state, **kwargs):
             'missedBeats': pendulum_state.get('missedBeats', 0),
             'kp': pendulum_state.get('kp', 0.0002),
             'ki': pendulum_state.get('ki', 0.00002),
-            'lastRateError': pendulum_state.get('lastRateError', 0.0)
+            'lastRateError': pendulum_state.get('lastRateError', 0.0),
+            'tickCount': pendulum_state.get('tickCount', 0),
+            'watchdogTriggered': pendulum_state.get('watchdogTriggered', False)
         }
-        
         json_response = ujson.dumps(essential_state)
         send_response(client, json_response)
     except Exception as e:
-        # Log error and send empty response
         print(f"Status request error: {e}")
         send_response(client, '{"error":"status_failed"}')
 
 def handle_log_request(client, log_buffer, **kwargs):
-    """Stream log entries efficiently without building large string"""
     client.send(HTTP_200_JSON)
     client.send(b'[')
-    
     first = True
     for entry in log_buffer:
         if not first: 
             client.send(b',')
         client.send(ujson.dumps(entry).encode('utf-8'))
         first = False
-    
     client.send(b']')
 
 def handle_history_request(client, pendulum_state, **kwargs):
-    """Return hourly history data"""
     history_list = list(pendulum_state.get("hourlyHistory", []))
     send_response(client, ujson.dumps(history_list))
 
 def handle_file_upload(client, headers_raw, log_func, **kwargs):
-    """Handle file uploads with streaming"""
     headers = headers_raw.split(b'\r\n')
     path_header = [h for h in headers if h.lower().startswith(b'x-target-path:')]
     if not path_header:
@@ -144,14 +143,12 @@ def handle_file_upload(client, headers_raw, log_func, **kwargs):
         client.send(HTTP_400)
 
 def handle_restart_request(client, log_func, **kwargs):
-    """Handle system restart request"""
     log_func("CONTROL: Restart requested...")
     send_json_ok(client)
     time.sleep(2)
     machine.reset()
 
 def handle_move_request(client, headers_raw, pendulum_state, log_func, **kwargs):
-    """Handle manual move requests"""
     data = _parse_json_body(client, headers_raw)
     if data and "inches" in data:
         inches = float(data["inches"])
@@ -162,7 +159,6 @@ def handle_move_request(client, headers_raw, pendulum_state, log_func, **kwargs)
         client.send(HTTP_400)
 
 def handle_update_tuning_request(client, headers_raw, pendulum_state, log_func, save_state_func, **kwargs):
-    """Handle PID tuning parameter updates"""
     data = _parse_json_body(client, headers_raw)
     if not data: 
         client.send(HTTP_400)
@@ -187,7 +183,6 @@ def handle_update_tuning_request(client, headers_raw, pendulum_state, log_func, 
     send_json_ok(client)
 
 def handle_toggle_corrections_request(client, headers_raw, pendulum_state, **kwargs):
-    """Toggle automatic corrections on/off"""
     data = _parse_json_body(client, headers_raw)
     if data and "active" in data:
         pendulum_state["correctionActive"] = bool(data["active"])
@@ -196,28 +191,23 @@ def handle_toggle_corrections_request(client, headers_raw, pendulum_state, **kwa
         client.send(HTTP_400)
 
 def handle_set_zero_request(client, pendulum_state, log_func, save_state_func, **kwargs):
-    """Reset position reference to zero"""
     pendulum_state["currPosIn"] = 0.0
     log_func("ZERO SET: Position reference has been reset.")
     save_state_func()
     send_json_ok(client)
 
 def handle_options_request(client, **kwargs):
-    """Handle CORS preflight requests"""
     client.send(HTTP_OPTIONS)
 
 def handle_debug_request(client, **kwargs):
-    """Simple debug endpoint"""
     debug_info = {
         "status": "ok",
         "time": time.time(),
         "memory": gc.mem_free() if hasattr(gc, 'mem_free') else "unknown"
     }
     send_response(client, ujson.dumps(debug_info))
-    """Handle CORS preflight requests"""
-    client.send(HTTP_OPTIONS)
+
 def handle_reset_timing_request(client, pendulum_state, log_func, save_state_func, **kwargs):
-    """Reset timing measurement period"""
     now = time.time()
     pendulum_state.update({
         "timingStartUtc": now, 
@@ -230,14 +220,11 @@ def handle_reset_timing_request(client, pendulum_state, log_func, save_state_fun
     save_state_func()
     send_json_ok(client)
 
-# --- Core Server Logic ---
 def runServer(pendulum_state, log_buffer, log_func, save_state_func):
-    """Main web server loop with memory optimization"""
-    
-    # Route definitions - including OPTIONS for CORS
     routes = {
         ('GET', '/'): ('static', 'index.html', 'text/html'),
-        ('GET', '/debug'): ('handler', handle_debug_request),  # Debug endpoint
+        ('GET', '/debug'): ('handler', handle_debug_request),
+        ('GET', '/beat'): ('handler', handle_beat_request), # NEW ROUTE
         ('GET', '/status'): ('handler', handle_status_request),
         ('GET', '/log'): ('handler', handle_log_request),
         ('GET', '/history'): ('handler', handle_history_request),
@@ -248,7 +235,6 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         ('POST', '/resetTiming'): ('handler', handle_reset_timing_request),
         ('POST', '/updateTuning'): ('handler', handle_update_tuning_request),
         ('POST', '/toggleCorrections'): ('handler', handle_toggle_corrections_request),
-        # Add OPTIONS handlers for CORS preflight
         ('OPTIONS', '/debug'): ('handler', handle_options_request),
         ('OPTIONS', '/status'): ('handler', handle_options_request),
         ('OPTIONS', '/log'): ('handler', handle_options_request),
@@ -260,29 +246,36 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         ('OPTIONS', '/toggleCorrections'): ('handler', handle_options_request),
     }
 
-    # Setup server socket
     addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(addr)
-    s.listen(3)  # Reduced listen queue to save memory
+    s.listen(3)
     log_func(f"Web server listening on {addr}")
 
-    # Reusable context dict to avoid repeated allocations
     context = {
-        'pendulum_state': pendulum_state,  # Changed key name to match handler expectations
+        'pendulum_state': pendulum_state,
         'log_buffer': log_buffer,
         'log_func': log_func,
         'save_state_func': save_state_func
     }
 
+    # FIX: Track last IP to avoid console spam
+    last_client_ip = None
+
     while True:
         client = None
         try:
             client, client_addr = s.accept()
-            client.settimeout(3.0)  # Shorter timeout to free up connections faster
             
-            # Read request headers
+            # FIX: Only print if the IP address changes
+            current_ip = client_addr[0]
+            if current_ip != last_client_ip:
+                print(f"New Web Client: {current_ip}")
+                last_client_ip = current_ip
+            
+            client.settimeout(3.0)
+            
             headers_raw = b""
             while True:
                 line = client.readline()
@@ -293,7 +286,6 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
             if not headers_raw:
                 continue
             
-            # Parse request line
             request_line = headers_raw.split(b'\r\n')[0]
             try:
                 method, path, _ = request_line.split(b' ', 2)
@@ -304,7 +296,6 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
                 client.send(HTTP_400)
                 continue
             
-            # Look up route handler
             route_key = (method_str, path_str)
             route_info = routes.get(route_key)
             
@@ -312,15 +303,12 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
                 route_type, handler_or_file = route_info[0], route_info[1]
                 
                 if route_type == 'static':
-                    # Static file serving
                     file_path, content_type = route_info[1], route_info[2]
                     serve_static_file(client, file_path, content_type)
                     
                 elif route_type == 'handler':
-                    # Dynamic handler function
                     handler_func = handler_or_file
-                    # Add headers_raw to context for this request
-                    request_context = dict(context)  # Make a copy
+                    request_context = dict(context)
                     request_context['headers_raw'] = headers_raw
                     try:
                         handler_func(client, **request_context)
@@ -338,5 +326,4 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
                     client.close()
                 except:
                     pass
-            # Force garbage collection after each request to prevent memory buildup
             gc.collect()

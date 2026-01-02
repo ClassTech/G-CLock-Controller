@@ -25,14 +25,27 @@
         #chart-legend { display: flex; justify-content: center; gap: 20px; margin-top: 10px; font-size: 0.875rem; }
         .legend-item { display: flex; align-items: center; }
         .legend-color { width: 12px; height: 12px; margin-right: 8px; border-radius: 2px; }
+
+        #tick-light {
+            width: 24px; height: 24px; border-radius: 50%;
+            background-color: #cbd5e1; border: 2px solid #94a3b8;
+            margin: 0 auto; transition: background-color 0.1s;
+        }
+        #watchdog-alert {
+            display: none; background-color: #fee2e2; border: 2px solid #ef4444;
+            color: #b91c1c; padding: 10px; border-radius: 6px;
+            text-align: center; font-weight: bold; margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Pendulum Clock Control</h1>
-        
+        <div id="watchdog-alert">⚠️ EMERGENCY: 10+ Missed Beats. Auto-Correction Disabled.</div>
+
         <h2>Live Status</h2>
         <div class="status-grid">
+            <div class="status-item"><div id="tick-light"></div><div class="label">Heartbeat</div></div>
             <div class="status-item"><div id="pos" class="value">--</div><div class="label">Position (in)</div></div>
             <div class="status-item"><div id="total-drift" class="value">--</div><div class="label">Current Error (s)</div></div>
             <div class="status-item"><div id="drift-sph" class="value">--</div><div class="label">Drift (s/hr)</div></div>
@@ -93,15 +106,36 @@
     let lastChartUpdateTime = 0;
     let chartData = { timestamps: [], position: [], totalDrift: [], driftRate: [] };
     const chartColors = { position: '#38bdf8', totalDrift: '#f87171', driftRate: '#4ade80' };
+    
+    let lastTickCount = -1;
 
     async function apiRequest(endpoint, options = {}) {
         try {
             const response = await fetch(endpoint, options);
-            if (!response.ok) { console.error(`HTTP error! status: ${response.status}`); return null; }
+            if (!response.ok) { return null; } // Silent fail on beat errors
             return response;
-        } catch (error) { console.error(`Request to ${endpoint} failed:`, error); return null; }
+        } catch (error) { return null; }
     }
 
+    // --- FAST LOOP (200ms) ---
+    async function pollBeat() {
+        const response = await apiRequest('/beat');
+        if (response) {
+            const data = await response.json();
+            if (lastTickCount !== -1 && data.t !== lastTickCount) {
+                const light = document.getElementById('tick-light');
+                light.style.backgroundColor = '#22c55e';
+                light.style.boxShadow = '0 0 10px #22c55e';
+                setTimeout(() => {
+                    light.style.backgroundColor = '#cbd5e1';
+                    light.style.boxShadow = 'none';
+                }, 100);
+            }
+            lastTickCount = data.t;
+        }
+    }
+
+    // --- SLOW LOOP (5s) ---
     async function updateStatus() {
         const response = await apiRequest('/status');
         if (response) {
@@ -124,8 +158,16 @@
             
             correctionsActive = data.correctionActive;
             const toggleBtn = document.getElementById('toggle-corrections-btn');
-            toggleBtn.textContent = `Auto-Correction is ${correctionsActive ? 'ON' : 'OFF'}`;
-            toggleBtn.className = correctionsActive ? 'active' : 'inactive';
+            
+            if (data.watchdogTriggered) {
+                document.getElementById('watchdog-alert').style.display = 'block';
+                toggleBtn.textContent = 'SENSOR ERROR - RESET REQUIRED';
+                toggleBtn.className = 'inactive';
+            } else {
+                document.getElementById('watchdog-alert').style.display = 'none';
+                toggleBtn.textContent = `Auto-Correction is ${correctionsActive ? 'ON' : 'OFF'}`;
+                toggleBtn.className = correctionsActive ? 'active' : 'inactive';
+            }
 
             updateChart(data);
         }
@@ -256,11 +298,6 @@
         }
         
         const plotLine = (data, color, range, name = '') => {
-            // ** ADDED DEBUGGING LOG **
-            if (name === 'driftRate') {
-                console.log(`Plotting ${name} with data:`, JSON.stringify(data));
-            }
-
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -389,6 +426,11 @@
         await loadHistory();
         updateStatus();
         fetchLogs();
+        
+        // FAST LOOP: 200ms (Heartbeat only)
+        setInterval(pollBeat, 200);
+        
+        // SLOW LOOP: 5000ms (Data & Logs)
         setInterval(updateStatus, 5000);
         setInterval(fetchLogs, 5000);
     });

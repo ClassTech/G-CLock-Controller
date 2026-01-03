@@ -21,9 +21,15 @@ STEP_SEQUENCE = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 0]]
 # CORRECTED PIEZO PIN
 PIEZO_PIN = 21
 
-# REQUESTED CHANGE: Debounce set to 0.7 seconds
-DEBOUNCE_US = 700000 
-EXPECTED_BEAT_PERIOD = 0.95
+# CONFIGURATION FOR NOISE FILTERING
+# 1. Blind Time: Ignore ringing immediately after impact (0.4s)
+DEBOUNCE_US = 400000 
+# 2. Min Valid Beat: Any tick between Debounce and this is IGNORED (Noise Zone)
+MIN_VALID_BEAT_S = 0.85
+# 3. Max Valid Beat: beats longer than this are considered "missed beats"
+MAX_VALID_BEAT_S = 1.35
+
+EXPECTED_BEAT_PERIOD = 1.00
 STATE_FILE = "pendulum_state.json"
 
 # Reduced buffer sizes for memory optimization
@@ -39,25 +45,19 @@ class PendulumController:
         self.last_state_save_utc = 0
         self.last_correction_hour = -1
         self.last_drift_calc_utc = 0
-        # Initialize with current time (likely 2000-01-01), will be reset after NTP
         self.last_valid_beat_time = time.time()
         
     def log_msg(self, msg):
-        """Optimized logging with memory management"""
         ts = time.localtime()
         full_msg = f"[{ts[0]:04}-{ts[1]:02}-{ts[2]:02} {ts[3]:02}:{ts[4]:02}:{ts[5]:02}] {msg}"
         print(full_msg)
-        
         self.log_buffer.append(full_msg)
         if len(self.log_buffer) > LOG_BUFFER_SIZE:
             self.log_buffer.pop(0)
-        
-        # Periodic garbage collection
         if len(self.log_buffer) % 10 == 0:
             gc.collect()
 
     def save_state(self):
-        """Save persistent state to JSON file"""
         try:
             with open(STATE_FILE, "w") as f:
                 history_list = list(self.pendulum_state["hourlyHistory"])
@@ -73,9 +73,7 @@ class PendulumController:
             self.log_msg(f"ERROR: Could not save state: {e}")
 
     def load_state(self):
-        """Load initial state from JSON or set defaults"""
         hourly_history_deque = ucollections.deque((), 168)
-
         self.pendulum_state = {
             "currPosIn": 0.0, "moveRequest": 0.0, "lastSwingTimeUs": 0, "swingCount": 0,
             "last60Beats": [], "last30Ticks": [], "last30Tocks": [], "avgBeatTime": 0.0,
@@ -85,10 +83,9 @@ class PendulumController:
             "lastMinuteSwingCount": 0, "lastHourlySwingCount": 0, "missedBeats": 0,
             "kp": 0.0002, "ki": 0.00002, "hourlyHistory": hourly_history_deque,
             "lastRateError": 0.0,
-            "tickCount": 0,          # REQUESTED: Counter for UI light
-            "watchdogTriggered": False # REQUESTED: Flag for safety stop
+            "tickCount": 0,
+            "watchdogTriggered": False
         }
-        
         try:
             with open(STATE_FILE, "r") as f:
                 loaded = ujson.load(f)
@@ -103,7 +100,6 @@ class PendulumController:
             self.log_msg("State file not found/corrupt. Initializing with default state.")
 
     def move_stepper(self, steps):
-        """Move stepper motor by specified number of steps"""
         direction = 1 if steps > 0 else -1
         for _ in range(abs(steps)):
             self.pendulum_state["stepperPosition"] = (self.pendulum_state["stepperPosition"] + direction) % 4
@@ -115,77 +111,83 @@ class PendulumController:
             STEPPER_PINS[i].value(0)
 
     def piezo_interrupt_handler(self, pin):
-        """Interrupt handler for piezo sensor"""
         try:
             self.tick_event_queue.append(time.ticks_us())
         except:
-            # Queue full - oldest event will be lost
             pass
 
     def handle_tick_processing(self):
-        """Process all pending tick events"""
         while len(self.tick_event_queue) > 0:
             current_time = self.tick_event_queue.popleft()
+            
+            # Initialization case
             if self.pendulum_state["lastSwingTimeUs"] == 0:
                 self.pendulum_state["lastSwingTimeUs"] = current_time
                 continue
                 
             interval = time.ticks_diff(current_time, self.pendulum_state["lastSwingTimeUs"])
+            
+            # 1. HARD DEBOUNCE: Ignore ringing immediately after impact
             if interval < DEBOUNCE_US: 
                 continue
             
-            # --- Valid Beat Detected ---
             beat_duration = interval / 1_000_000.0
-            is_beat_processed = False
+            is_valid_beat = False
             
-            if 0.7 < beat_duration < 1.8:
-                # Valid beat logic
+            # 2. WINDOW FILTERING
+            # If duration is 0.4s - 0.85s, it falls through here. 
+            # We ignore it AND we do NOT update lastSwingTimeUs.
+            
+            if MIN_VALID_BEAT_S < beat_duration < MAX_VALID_BEAT_S:
+                # --- VALID BEAT (0.85s - 1.35s) ---
                 beats = self.pendulum_state["last60Beats"]
                 beats.append(beat_duration)
                 if len(beats) > BEAT_HISTORY_SIZE:
                     beats.pop(0)
                 
+                # Tick/Tock separation
                 if self.pendulum_state["swingCount"] % 2 == 0:
                     ticks = self.pendulum_state["last30Ticks"]
                     ticks.append(beat_duration)
-                    if len(ticks) > TICK_TOCK_SIZE:
-                        ticks.pop(0)
+                    if len(ticks) > TICK_TOCK_SIZE: ticks.pop(0)
                 else:
                     tocks = self.pendulum_state["last30Tocks"]
                     tocks.append(beat_duration)
-                    if len(tocks) > TICK_TOCK_SIZE:
-                        tocks.pop(0)
+                    if len(tocks) > TICK_TOCK_SIZE: tocks.pop(0)
 
                 self.pendulum_state["swingCount"] += 1
                 
-                # REQUESTED: Update tick counter and reset watchdog
+                # Update Watchdog Counters
                 self.pendulum_state["tickCount"] = self.pendulum_state.get("tickCount", 0) + 1
                 self.pendulum_state["watchdogTriggered"] = False
                 self.last_valid_beat_time = time.time()
                 
-                is_beat_processed = True
+                is_valid_beat = True
                 
-            elif 1.9 <= beat_duration < 10.0:
-                num_beats = int(round(beat_duration / EXPECTED_BEAT_PERIOD))
-                missed_count = num_beats - 1
-                if missed_count > 0:
-                    self.pendulum_state["missedBeats"] += missed_count
-                    self.pendulum_state["swingCount"] += num_beats
-                    self.log_msg(f"WARNING: Detected {missed_count} missed beats.")
-                is_beat_processed = True
-                
-            if is_beat_processed: 
+            elif beat_duration >= MAX_VALID_BEAT_S:
+                # --- MISSED BEAT LOGIC (> 1.35s) ---
+                # Only check up to 10 seconds to avoid massive jumps on reboot
+                if beat_duration < 10.0:
+                    num_beats = int(round(beat_duration / EXPECTED_BEAT_PERIOD))
+                    missed_count = num_beats - 1
+                    if missed_count > 0:
+                        self.pendulum_state["missedBeats"] += missed_count
+                        self.pendulum_state["swingCount"] += num_beats
+                        self.log_msg(f"WARNING: Detected {missed_count} missed beats (Duration: {beat_duration:.2f}s).")
+                    is_valid_beat = True
+            
+            # CRITICAL: Only update the reference time if it was a REAL beat.
+            # If it was noise (0.4s - 0.85s), we keep the old reference time!
+            if is_valid_beat: 
                 self.pendulum_state["lastSwingTimeUs"] = current_time
 
     def format_timespan(self, seconds):
-        """Format seconds into readable string"""
         days, r = divmod(seconds, 86400)
         h, r = divmod(r, 3600)
         m, s = divmod(r, 60)
         return f"{int(days)}d {int(h)}h {int(m)}m {int(s)}s"
 
     def handle_stepper_motor(self):
-        """Handle any pending stepper motor moves"""
         if self.pendulum_state["moveRequest"] != 0.0:
             move_in = self.pendulum_state["moveRequest"]
             steps = int(move_in * STEPS_PER_INCH)
@@ -196,14 +198,11 @@ class PendulumController:
             self.log_msg(f"MOVE: Complete. New position: {self.pendulum_state['currPosIn']:.6f} in.")
 
     def handle_hourly_tasks(self, current_tuple, current_utc):
-        """Handle hourly corrections and data logging"""
         current_hour = current_tuple[3] 
-        
         if current_hour == self.last_correction_hour:
             return
 
         self.last_correction_hour = current_hour
-        
         try: 
             ntptime.settime()
             self.log_msg("NTP: Sync successful.")
@@ -226,7 +225,6 @@ class PendulumController:
             p_move = rate_error * self.pendulum_state.get('kp', 0.0002)
             i_move = self.pendulum_state["totalDriftS"] * self.pendulum_state.get('ki', 0.00002)
             self.log_msg(f"CORRECTION: Total Error: {self.pendulum_state['totalDriftS']:.2f}s. Rate Error: {rate_error:.2f} swings/hr.")
-            self.log_msg(f"  -> P: {p_move:.6f}in, I: {i_move:.6f}in.")
             
             calculated_move = p_move + i_move
             clamped_pos = max(-MAX_TOTAL_TRAVEL_INCH, min(MAX_TOTAL_TRAVEL_INCH, self.pendulum_state["currPosIn"] + calculated_move))
@@ -241,16 +239,12 @@ class PendulumController:
             "rate": self.pendulum_state["lastRateError"]
         }
         self.pendulum_state["hourlyHistory"].append(snapshot)
-        self.log_msg(f"HISTORY: Saved hourly snapshot. History now has {len(self.pendulum_state['hourlyHistory'])} points.")
-        
         self.save_state()
         self.pendulum_state["lastCorrectionUtc"] = current_utc
         self.pendulum_state["lastHourlySwingCount"] = self.pendulum_state["swingCount"]
-        
         gc.collect()
 
     def handle_rolling_drift_calc(self, current_utc):
-        """Calculate rolling drift estimate"""
         if current_utc - self.last_drift_calc_utc >= 60:
             index = time.localtime(current_utc)[4] % 10
             swings = self.pendulum_state["swingCount"] - self.pendulum_state["lastMinuteSwingCount"]
@@ -266,9 +260,7 @@ class PendulumController:
             self.last_drift_calc_utc = current_utc
 
     def handle_continuous_updates(self, current_utc):
-        """Update continuous calculations"""
-        # REQUESTED FEATURE: Watchdog (10 beats = approx 12 seconds)
-        # Using 12.0 seconds as the threshold
+        # Watchdog: 12 seconds
         if self.pendulum_state["correctionActive"] and not self.pendulum_state.get("watchdogTriggered", False):
             if current_utc - self.last_valid_beat_time > 12.0:
                 self.log_msg("EMERGENCY: 10+ missed beats detected. Auto-correction DISABLED.")
@@ -291,7 +283,6 @@ class PendulumController:
         self.pendulum_state["elapsedTimeStr"] = self.format_timespan(current_utc - self.pendulum_state["timingStartUtc"])
 
     def main_loop(self):
-        """Main control loop"""
         self.log_msg("Main loop started.")
         self.last_drift_calc_utc = time.time()
         
@@ -316,7 +307,6 @@ class PendulumController:
                 time.sleep_ms(100)
 
     def run(self, wifi_ssid, wifi_password, hostname="pendulum-clock"):
-        """Main entry point - sets up everything and starts the system"""
         self.log_msg("--- Pendulum Regulator Initializing ---")
         self.load_state()
         
@@ -343,9 +333,7 @@ class PendulumController:
                 self.log_msg(f"TIME: NTP sync failed: {e}. Retrying in 30 seconds...")
                 time.sleep(30)
                 
-        # CRITICAL FIX: Reset the watchdog timer NOW, because time just jumped 26 years forward
         self.last_valid_beat_time = time.time()
-
         now = time.time()
         if self.pendulum_state["timingStartUtc"] == 0: 
             self.pendulum_state["timingStartUtc"] = now

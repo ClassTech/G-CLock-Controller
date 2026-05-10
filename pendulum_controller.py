@@ -18,13 +18,12 @@ STEP_DELAY_MS = 3
 MAX_TOTAL_TRAVEL_INCH = 0.2
 STEP_SEQUENCE = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 0]]
 
-# CORRECTED PIEZO PIN
-PIEZO_PIN = 21
+IR_SENSOR_PIN = 21
 
-# CONFIGURATION FOR NOISE FILTERING
-# 1. Blind Time: Ignore ringing immediately after impact (0.4s)
-DEBOUNCE_US = 400000 
-# 2. Min Valid Beat: Any tick between Debounce and this is IGNORED (Noise Zone)
+# BEAT FILTERING
+# 1. Debounce: Ignore re-triggers within this window after a valid swing (0.4s)
+DEBOUNCE_US = 400000
+# 2. Min Valid Beat: Intervals shorter than this are ignored
 MIN_VALID_BEAT_S = 0.85
 # 3. Max Valid Beat: beats longer than this are considered "missed beats"
 MAX_VALID_BEAT_S = 1.35
@@ -41,6 +40,9 @@ class PendulumController:
     def __init__(self):
         self.pendulum_state = {}
         self.log_buffer = []
+        self.wifi_ssid = ""
+        self.wifi_password = ""
+        self.hostname = "pendulum-clock"
         self.tick_event_queue = ucollections.deque((), 20)
         self.last_state_save_utc = 0
         self.last_correction_hour = -1
@@ -92,6 +94,9 @@ class PendulumController:
                 self.pendulum_state["currPosIn"] = loaded.get("currPosIn", 0.0)
                 self.pendulum_state["kp"] = loaded.get("kp", 0.0002)
                 self.pendulum_state["ki"] = loaded.get("ki", 0.00002)
+                self.wifi_ssid = loaded.get("wifi_ssid", "")
+                self.wifi_password = loaded.get("wifi_password", "")
+                self.hostname = loaded.get("hostname", "pendulum-clock")
                 loaded_history = loaded.get("hourlyHistory", [])
                 for entry in loaded_history:
                     self.pendulum_state["hourlyHistory"].append(entry)
@@ -110,7 +115,7 @@ class PendulumController:
         for i in range(4): 
             STEPPER_PINS[i].value(0)
 
-    def piezo_interrupt_handler(self, pin):
+    def swing_interrupt_handler(self, pin):
         try:
             self.tick_event_queue.append(time.ticks_us())
         except:
@@ -127,8 +132,8 @@ class PendulumController:
                 
             interval = time.ticks_diff(current_time, self.pendulum_state["lastSwingTimeUs"])
             
-            # 1. HARD DEBOUNCE: Ignore ringing immediately after impact
-            if interval < DEBOUNCE_US: 
+            # 1. HARD DEBOUNCE: Ignore re-triggers within debounce window
+            if interval < DEBOUNCE_US:
                 continue
             
             beat_duration = interval / 1_000_000.0
@@ -306,15 +311,15 @@ class PendulumController:
                 self.log_msg(f"ERROR in main loop: {e}")
                 time.sleep_ms(100)
 
-    def run(self, wifi_ssid, wifi_password, hostname="pendulum-clock"):
+    def run(self):
         self.log_msg("--- Pendulum Regulator Initializing ---")
         self.load_state()
-        
+
         import wifi_manager
         import webserver
-        
+
         while True:
-            wlan = wifi_manager.connectWifi(wifi_ssid, wifi_password, hostname=hostname)
+            wlan = wifi_manager.connectWifi(self.wifi_ssid, self.wifi_password, hostname=self.hostname)
             if wlan and wlan.isconnected():
                 self.log_msg("WIFI: Connection successful.")
                 break
@@ -343,9 +348,9 @@ class PendulumController:
         _thread.start_new_thread(webserver.runServer, 
                                (self.pendulum_state, self.log_buffer, self.log_msg, self.save_state))
         
-        piezo_pin = Pin(PIEZO_PIN, Pin.IN, Pin.PULL_UP)
-        piezo_pin.irq(trigger=Pin.IRQ_FALLING, handler=self.piezo_interrupt_handler)
-        self.log_msg(f"Piezo tick detector initialized on Pin {PIEZO_PIN} (with PULL_UP).")
+        ir_sensor_pin = Pin(IR_SENSOR_PIN, Pin.IN)
+        ir_sensor_pin.irq(trigger=Pin.IRQ_RISING, handler=self.swing_interrupt_handler)
+        self.log_msg(f"IR swing detector initialized on Pin {IR_SENSOR_PIN}.")
         
         gc.collect()
         self.log_msg(f"Free memory: {gc.mem_free()} bytes")

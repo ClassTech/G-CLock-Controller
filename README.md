@@ -4,11 +4,11 @@ Here is the updated `README.md` with the correction regarding the adjustment mec
 
 # ESP32 Pendulum Clock Regulator
 
-This project implements an IoT-based regulation system for mechanical pendulum clocks (e.g., grandfather/longcase clocks). It uses a MicroPython-based ESP32 controller to monitor the clock's beat via a piezo sensor, calculate drift against an NTP time server, and physically adjust the effective length of the pendulum by moving a clip up and down the suspension spring using a stepper motor.
+This project implements an IoT-based regulation system for mechanical pendulum clocks (e.g., grandfather/longcase clocks). It uses a MicroPython-based ESP32 controller to monitor the clock's beat via an IR sensor, calculate drift against an NTP time server, and physically adjust the effective length of the pendulum by moving a clip up and down the suspension spring using a stepper motor.
 
 ## Features
 
-  * **Precision Timing:** Detects clock beats using a piezo sensor interrupt.
+  * **Precision Timing:** Detects pendulum swings using an IR sensor interrupt.
   * **Automatic Regulation:** Uses a Proportional-Integral (PI) control loop to adjust the pendulum length to correct rate errors.
   * **Web Dashboard:** Hosted directly on the ESP32 (no external internet required for UI).
       * Live status (Position, Drift, Beat differential).
@@ -24,7 +24,7 @@ This project implements an IoT-based regulation system for mechanical pendulum c
 Based on the pin configurations in `pendulum_controller.py`:
 
   * **Microcontroller:** ESP32 (running MicroPython).
-  * **Sensor:** Piezoelectric sensor (connected to **Pin 8**) for beat detection.
+  * **Sensor:** IR sensor (connected to **Pin 21**) for pendulum swing detection. The sensor output goes **HIGH** (rising edge) each time the pendulum passes through the beam.
   * **Actuator:** Stepper Motor (likely 28BYJ-48 with ULN2003 driver) to drive the suspension spring clip mechanism.
   * **Stepper Wiring:**
       * IN1: Pin 3
@@ -35,23 +35,24 @@ Based on the pin configurations in `pendulum_controller.py`:
 ## File Structure
 
   * `boot.py`: Standard MicroPython bootloader.
-  * `main.py`: Entry point. Initializes the controller and sets WiFi credentials.
+  * `main.py`: Entry point. Initializes the controller.
   * `wifi_manager.py`: Handles Wi-Fi connection with memory optimization and garbage collection.
   * `pendulum_controller.py`: Core logic. Handles interrupts, stepper movement, drift calculation, and the main control loop.
   * `webserver.py`: A custom, memory-efficient HTTP server handling API requests and serving the frontend.
   * `index.html`: The frontend dashboard (embedded CSS/JS).
-  * `pendulum_state.json`: Stores persistent data (current stepper position, history, PID values).
+  * `pendulum_state.json`: Stores persistent data (current stepper position, history, PI values) and configuration (Wi-Fi credentials, hostname).
 
 ## Installation & Setup
 
 1.  **Flash MicroPython:** Ensure your ESP32 is flashed with a recent version of MicroPython.
 
 2.  **Configure Credentials:**
-    Open `main.py` and update the `controller.run()` arguments with your Wi-Fi details:
+    Edit `pendulum_state.json` and set your Wi-Fi details:
 
-    ```python
-    # main.py
-    controller.run("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD", hostname="pendulum-clock")
+    ```json
+    "wifi_ssid": "YOUR_WIFI_SSID",
+    "wifi_password": "YOUR_WIFI_PASSWORD",
+    "hostname": "pendulum-clock"
     ```
 
 3.  **Upload Files:** Upload all `.py` files and `index.html` to the root of the ESP32.

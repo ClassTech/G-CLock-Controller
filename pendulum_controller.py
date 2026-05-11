@@ -348,9 +348,9 @@ class PendulumController:
         _thread.start_new_thread(webserver.runServer, 
                                (self.pendulum_state, self.log_buffer, self.log_msg, self.save_state))
         
-        ir_sensor_pin = Pin(IR_SENSOR_PIN, Pin.IN)
-        ir_sensor_pin.irq(trigger=Pin.IRQ_RISING, handler=self.swing_interrupt_handler)
-        self.log_msg(f"IR swing detector initialized on Pin {IR_SENSOR_PIN}.")
+        ir_sensor_pin = Pin(IR_SENSOR_PIN, Pin.IN, Pin.PULL_UP)
+        ir_sensor_pin.irq(trigger=Pin.IRQ_FALLING, handler=self.swing_interrupt_handler)
+        self.log_msg(f"IR swing detector initialized on Pin {IR_SENSOR_PIN} (PULL_UP, active LOW).")
         
         gc.collect()
         self.log_msg(f"Free memory: {gc.mem_free()} bytes")

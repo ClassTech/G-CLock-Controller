@@ -24,7 +24,10 @@ This project implements an IoT-based regulation system for mechanical pendulum c
 Based on the pin configurations in `pendulum_controller.py`:
 
   * **Microcontroller:** ESP32 (running MicroPython).
-  * **Sensor:** IR sensor (connected to **Pin 21**) for pendulum swing detection. The sensor output goes **HIGH** (rising edge) each time the pendulum passes through the beam.
+  * **Sensor:** TCRT5000 IR sensor (signal wire connected to **Pin 21**). The signal goes **LOW** (active low) when the pendulum passes through the beam; the ESP32C3's internal pull-up is enabled. Wiring:
+      * Yellow — signal (Pin 21, active LOW)
+      * Purple — Vcc (3.3 V via 220 Ω resistor)
+      * Blue / Green — GND
   * **Actuator:** Stepper Motor (likely 28BYJ-48 with ULN2003 driver) to drive the suspension spring clip mechanism.
   * **Stepper Wiring:**
       * IN1: Pin 3

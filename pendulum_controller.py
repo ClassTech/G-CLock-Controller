@@ -94,9 +94,6 @@ class PendulumController:
                 self.pendulum_state["currPosIn"] = loaded.get("currPosIn", 0.0)
                 self.pendulum_state["kp"] = loaded.get("kp", 0.0002)
                 self.pendulum_state["ki"] = loaded.get("ki", 0.00002)
-                self.wifi_ssid = loaded.get("wifi_ssid", "")
-                self.wifi_password = loaded.get("wifi_password", "")
-                self.hostname = loaded.get("hostname", "pendulum-clock")
                 loaded_history = loaded.get("hourlyHistory", [])
                 for entry in loaded_history:
                     self.pendulum_state["hourlyHistory"].append(entry)
@@ -311,9 +308,30 @@ class PendulumController:
                 self.log_msg(f"ERROR in main loop: {e}")
                 time.sleep_ms(100)
 
+    def load_wifi_config(self):
+        try:
+            with open("wifi.config", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+                    if key == "ssid":
+                        self.wifi_ssid = value
+                    elif key == "password":
+                        self.wifi_password = value
+                    elif key == "hostname":
+                        self.hostname = value
+            self.log_msg("WIFI: Config loaded.")
+        except OSError:
+            self.log_msg("ERROR: wifi.config not found. WiFi will not connect.")
+
     def run(self):
         self.log_msg("--- Pendulum Regulator Initializing ---")
         self.load_state()
+        self.load_wifi_config()
 
         import wifi_manager
         import webserver

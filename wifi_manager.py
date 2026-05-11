@@ -26,7 +26,7 @@ def connectWifi(ssid, password, hostname="pendulum-clock", timeout=15):
 
     if not wlan.isconnected():
         print(f"Connecting to Wi-Fi SSID: {ssid}...")
-        wlan.connect(ssid, password, hostname)
+        wlan.connect(ssid, password)
 
         start_time = time.time()
         dot_count = 0

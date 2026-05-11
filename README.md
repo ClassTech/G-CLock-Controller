@@ -43,19 +43,20 @@ Based on the pin configurations in `pendulum_controller.py`:
   * `pendulum_controller.py`: Core logic. Handles interrupts, stepper movement, drift calculation, and the main control loop.
   * `webserver.py`: A custom, memory-efficient HTTP server handling API requests and serving the frontend.
   * `index.html`: The frontend dashboard (embedded CSS/JS).
-  * `pendulum_state.json`: Stores persistent data (current stepper position, history, PI values) and configuration (Wi-Fi credentials, hostname).
+  * `wifi.config`: Wi-Fi credentials and hostname (plain text, key=value format).
+  * `pendulum_state.json`: Stores persistent runtime data (stepper position, history, PI values).
 
 ## Installation & Setup
 
 1.  **Flash MicroPython:** Ensure your ESP32 is flashed with a recent version of MicroPython.
 
 2.  **Configure Credentials:**
-    Edit `pendulum_state.json` and set your Wi-Fi details:
+    Edit `wifi.config` and set your Wi-Fi details:
 
-    ```json
-    "wifi_ssid": "YOUR_WIFI_SSID",
-    "wifi_password": "YOUR_WIFI_PASSWORD",
-    "hostname": "pendulum-clock"
+    ```
+    ssid=YOUR_WIFI_SSID
+    password=YOUR_WIFI_PASSWORD
+    hostname=pendulum-clock
     ```
 
 3.  **Upload Files:** Upload all `.py` files and `index.html` to the root of the ESP32.

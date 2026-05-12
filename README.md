@@ -28,12 +28,12 @@ Based on the pin configurations in `pendulum_controller.py`:
       * Yellow — signal (Pin 21, active LOW)
       * Purple — Vcc (3.3 V via 220 Ω resistor)
       * Blue / Green — GND
-  * **Actuator:** Stepper Motor (likely 28BYJ-48 with ULN2003 driver) to drive the suspension spring clip mechanism.
-  * **Stepper Wiring:**
-      * IN1: Pin 3
-      * IN2: Pin 4
-      * IN3: Pin 5
-      * IN4: Pin 6
+  * **Actuator:** Oukeda BHY2001-10 stepper motor driven by a DRV8833 dual H-bridge driver.
+  * **Stepper Wiring (DRV8833 → XIAO ESP32C3 left-side GPIO pins):**
+      * AIN1: GPIO3
+      * AIN2: GPIO4
+      * BIN1: GPIO5
+      * BIN2: GPIO6
 
 ## File Structure
 

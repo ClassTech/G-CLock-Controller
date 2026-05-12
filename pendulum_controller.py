@@ -10,13 +10,23 @@ import ujson
 import gc
 
 # --- Constants ---
-# CORRECTED PIN MAPPING (XIAO ESP32C3)
-STEPPER_PINS = [Pin(2, Pin.OUT), Pin(3, Pin.OUT), Pin(4, Pin.OUT), Pin(5, Pin.OUT)]
+# DRV8833 bipolar driver: [AIN1, AIN2, BIN1, BIN2] → GPIO3-6
+STEPPER_PINS = [Pin(3, Pin.OUT), Pin(4, Pin.OUT), Pin(5, Pin.OUT), Pin(6, Pin.OUT)]
 
 STEPS_PER_INCH = 6400
-STEP_DELAY_MS = 3
+STEP_DELAY_MS = 10
 MAX_TOTAL_TRAVEL_INCH = 0.2
-STEP_SEQUENCE = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 0]]
+# Half-step sequence for bipolar stepper via DRV8833 [AIN1, AIN2, BIN1, BIN2]
+STEP_SEQUENCE = [
+    [1, 0, 0, 0],
+    [1, 0, 1, 0],
+    [0, 0, 1, 0],
+    [0, 1, 1, 0],
+    [0, 1, 0, 0],
+    [0, 1, 0, 1],
+    [0, 0, 0, 1],
+    [1, 0, 0, 1],
+]
 
 IR_SENSOR_PIN = 21
 
@@ -43,6 +53,8 @@ class PendulumController:
         self.wifi_ssid = ""
         self.wifi_password = ""
         self.hostname = "pendulum-clock"
+        self.ir_pin = None
+        self._motor_stop_utc = 0
         self.tick_event_queue = ucollections.deque((), 20)
         self.last_state_save_utc = 0
         self.last_correction_hour = -1
@@ -86,7 +98,8 @@ class PendulumController:
             "kp": 0.0002, "ki": 0.00002, "hourlyHistory": hourly_history_deque,
             "lastRateError": 0.0,
             "tickCount": 0,
-            "watchdogTriggered": False
+            "watchdogTriggered": False,
+            "stepsRemaining": 0, "stepDir": 1
         }
         try:
             with open(STATE_FILE, "r") as f:
@@ -101,16 +114,31 @@ class PendulumController:
         except (OSError, ValueError):
             self.log_msg("State file not found/corrupt. Initializing with default state.")
 
-    def move_stepper(self, steps):
-        direction = 1 if steps > 0 else -1
-        for _ in range(abs(steps)):
-            self.pendulum_state["stepperPosition"] = (self.pendulum_state["stepperPosition"] + direction) % 4
-            pattern = STEP_SEQUENCE[self.pendulum_state["stepperPosition"]]
-            for i in range(4): 
-                STEPPER_PINS[i].value(pattern[i])
-            time.sleep_ms(STEP_DELAY_MS)
-        for i in range(4): 
-            STEPPER_PINS[i].value(0)
+    def _step_once(self):
+        remaining = self.pendulum_state["stepsRemaining"]
+        if remaining <= 0:
+            return False
+        p0, p1, p2, p3 = STEPPER_PINS
+        pos = (self.pendulum_state["stepperPosition"] + self.pendulum_state["stepDir"]) % 8
+        s = STEP_SEQUENCE[pos]
+        p0.value(s[0])
+        p1.value(s[1])
+        p2.value(s[2])
+        p3.value(s[3])
+        self.pendulum_state["stepperPosition"] = pos
+        remaining -= 1
+        self.pendulum_state["stepsRemaining"] = remaining
+        if remaining <= 0:
+            p0.value(0)
+            p1.value(0)
+            p2.value(0)
+            p3.value(0)
+            self.log_msg(f"MOVE: Complete. Position: {self.pendulum_state['currPosIn']:.6f} in.")
+            self.save_state()
+            # Clip disturbance: reset beat reference so the gap isn't counted as drift
+            self.pendulum_state["lastSwingTimeUs"] = 0
+            self._motor_stop_utc = time.time()
+        return remaining > 0
 
     def swing_interrupt_handler(self, pin):
         try:
@@ -124,6 +152,13 @@ class PendulumController:
             
             # Initialization case
             if self.pendulum_state["lastSwingTimeUs"] == 0:
+                # If recovering from a motor-stop disturbance, shift timingStartUtc forward
+                # by however long the pendulum was off-beam so totalDriftS stays accurate.
+                if self._motor_stop_utc > 0 and self.pendulum_state["timingStartUtc"] > 0:
+                    gap = time.time() - self._motor_stop_utc
+                    self.pendulum_state["timingStartUtc"] += gap
+                    self.log_msg(f"MOVE: Shifted timing start by {gap}s to absorb disturbance gap.")
+                    self._motor_stop_utc = 0
                 self.pendulum_state["lastSwingTimeUs"] = current_time
                 continue
                 
@@ -193,11 +228,13 @@ class PendulumController:
         if self.pendulum_state["moveRequest"] != 0.0:
             move_in = self.pendulum_state["moveRequest"]
             steps = int(move_in * STEPS_PER_INCH)
-            self.log_msg(f"MOVE: {move_in:.6f} in -> {steps} steps.")
-            self.move_stepper(steps)
-            self.pendulum_state["currPosIn"] += steps / STEPS_PER_INCH
             self.pendulum_state["moveRequest"] = 0.0
-            self.log_msg(f"MOVE: Complete. New position: {self.pendulum_state['currPosIn']:.6f} in.")
+            if steps == 0:
+                return
+            self.log_msg(f"MOVE: {move_in:.6f} in -> {steps} steps.")
+            self.pendulum_state["stepDir"] = 1 if steps > 0 else -1
+            self.pendulum_state["stepsRemaining"] = abs(steps)
+            self.pendulum_state["currPosIn"] += steps / STEPS_PER_INCH
 
     def handle_hourly_tasks(self, current_tuple, current_utc):
         current_hour = current_tuple[3] 
@@ -300,9 +337,11 @@ class PendulumController:
                 
                 if self.pendulum_state["moveRequest"] != 0.0:
                     self.handle_stepper_motor()
-                    self.save_state()
 
-                time.sleep_ms(20)
+                if self._step_once():
+                    time.sleep_ms(STEP_DELAY_MS)
+                else:
+                    time.sleep_ms(20)
                 
             except Exception as e:
                 self.log_msg(f"ERROR in main loop: {e}")
@@ -366,8 +405,8 @@ class PendulumController:
         _thread.start_new_thread(webserver.runServer, 
                                (self.pendulum_state, self.log_buffer, self.log_msg, self.save_state))
         
-        ir_sensor_pin = Pin(IR_SENSOR_PIN, Pin.IN, Pin.PULL_UP)
-        ir_sensor_pin.irq(trigger=Pin.IRQ_FALLING, handler=self.swing_interrupt_handler)
+        self.ir_pin = Pin(IR_SENSOR_PIN, Pin.IN, Pin.PULL_UP)
+        self.ir_pin.irq(trigger=Pin.IRQ_FALLING, handler=self.swing_interrupt_handler)
         self.log_msg(f"IR swing detector initialized on Pin {IR_SENSOR_PIN} (PULL_UP, active LOW).")
         
         gc.collect()

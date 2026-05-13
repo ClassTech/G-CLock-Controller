@@ -1,1 +1,3 @@
 *.mpy
+wifi.config
+pendulum_state.json

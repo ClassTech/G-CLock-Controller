@@ -129,6 +129,13 @@ class PendulumController:
         remaining -= 1
         self.pendulum_state["stepsRemaining"] = remaining
         if remaining <= 0:
+            # Brake mode: short both outputs to GND so coil current recirculates
+            # through motor resistance instead of spiking VM via flyback diodes.
+            p0.value(1)
+            p1.value(1)
+            p2.value(1)
+            p3.value(1)
+            time.sleep_ms(10)
             p0.value(0)
             p1.value(0)
             p2.value(0)

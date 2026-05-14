@@ -262,7 +262,7 @@ class PendulumController:
             if steps == 0:
                 return
             self.log_msg(f"MOVE: {move_in:.6f} in -> {steps} steps.")
-            self.pendulum_state["stepDir"] = 1 if steps > 0 else -1
+            self.pendulum_state["stepDir"] = -1 if steps > 0 else 1
             self.pendulum_state["stepsRemaining"] = abs(steps)
             self.pendulum_state["currPosIn"] += steps / STEPS_PER_INCH
 

@@ -41,6 +41,29 @@ MAX_VALID_BEAT_S = 1.35
 EXPECTED_BEAT_PERIOD = 1.00
 STATE_FILE = "pendulum_state.json"
 
+def _is_dst(utc_secs):
+    t = time.localtime(utc_secs)
+    month, mday, hour = t[1], t[2], t[3]
+    if month < 3 or month > 11:
+        return False
+    if 3 < month < 11:
+        return True
+    # Second Sunday of March (start) / First Sunday of November (end)
+    year = t[0]
+    if month == 3:
+        dow_mar1 = time.localtime(time.mktime((year, 3, 1, 0, 0, 0, 0, 0)))[6]
+        second_sun = 1 + (6 - dow_mar1) % 7 + 7
+        return mday > second_sun or (mday == second_sun and hour >= 2)
+    # month == 11
+    dow_nov1 = time.localtime(time.mktime((year, 11, 1, 0, 0, 0, 0, 0)))[6]
+    first_sun = 1 + (6 - dow_nov1) % 7
+    return mday < first_sun or (mday == first_sun and hour < 2)
+
+def _central_time():
+    utc = time.time()
+    offset = 5 if _is_dst(utc) else 6
+    return time.localtime(utc - offset * 3600)
+
 # Reduced buffer sizes for memory optimization
 LOG_BUFFER_SIZE = 50  
 BEAT_HISTORY_SIZE = 40  
@@ -62,8 +85,8 @@ class PendulumController:
         self.last_valid_beat_time = time.time()
         
     def log_msg(self, msg):
-        ts = time.localtime()
-        full_msg = f"[{ts[0]:04}-{ts[1]:02}-{ts[2]:02} {ts[3]:02}:{ts[4]:02}:{ts[5]:02}] {msg}"
+        ts = _central_time()
+        full_msg = f"[{ts[1]:02}-{ts[2]:02} {ts[3]:02}:{ts[4]:02}:{ts[5]:02}] {msg}"
         print(full_msg)
         self.log_buffer.append(full_msg)
         if len(self.log_buffer) > LOG_BUFFER_SIZE:

@@ -86,6 +86,7 @@ Connector type: TBD (JST-PH 4-pin recommended for mechanical security).
 | Ref | Value | Type | Placement | Purpose |
 |-----|-------|------|-----------|---------|
 | R1  | 220 Ω | 1/4 W resistor | Between +3V3 and J1 pin 1 | IR LED current limiting (~14 mA at 3.3 V) |
+| R2  | 10 kΩ | 1/4 W resistor | GPIO21 signal net to +3V3 | External pull-up; reduces RC time constant with C1 from 4.5 ms (internal 45 kΩ alone) to ~0.8 ms for faster edge recovery |
 | C1  | 100 nF | Ceramic, 0402 or 0603 | GPIO21 signal net to GND, close to J1 pin 3 | Motor switching noise filter on IR signal |
 | C2  | 100 nF | Ceramic, 0402 or 0603 | DRV8833 VM to GND, close to VM pin | HF decoupling for motor driver |
 | C3  | 10 µF | Electrolytic or ceramic, ≥10 V | DRV8833 VM to GND | Bulk decoupling for motor current transients |
@@ -104,8 +105,9 @@ GPIO4:  XIAO D4 — DRV8833 AIN2
 GPIO5:  XIAO D5 — DRV8833 BIN1
 GPIO6:  XIAO D6 — DRV8833 BIN2
 
-IR_SIG: J1 pin 3 — C1(+) — XIAO GPIO21 (internal 45kΩ pull-up to 3V3)
+IR_SIG: J1 pin 3 — C1(+) — R2(one end) — XIAO GPIO21 (internal 45kΩ pull-up to 3V3)
 IR_LED: R1(other end) — J1 pin 1
+R2:     other end → +3V3
 ```
 
 ---

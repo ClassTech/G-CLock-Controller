@@ -118,3 +118,17 @@ IR_LED: R1(other end) — J1 pin 1
 - Keep motor output traces away from the IR signal net — motor switching noise can couple into the IR signal (mitigated in firmware via brake-mode stop, but good layout practice regardless).
 - The XIAO ESP32C3 module mounts as a sub-board (castellated or header pins); no additional decoupling caps needed for the 3.3 V rail on the PCB.
 - nFAULT is open-drain on the DRV8833 — leave the pad unconnected or add a DNP pull-up if fault monitoring is added later.
+
+---
+
+## PI Controller Tuning
+
+The regulator applies a PI correction once per hour based on swing count vs. elapsed NTP time.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| Kp | 0.005 | Proportional gain (inches per swing/hr of rate error) |
+| Ki | 0.001 | Integral gain (inches per accumulated second of drift) |
+| Max travel | ±0.2 in | Hard clamp on total clip position |
+
+**Nonlinearity note:** The pendulum period varies as √L, so equal clip movements produce diminishing rate corrections as the pendulum lengthens. Gains are calibrated for the mid-travel operating point. If the clock settles near either extreme of travel, Kp may need adjustment.

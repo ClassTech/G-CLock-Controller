@@ -118,7 +118,7 @@ class PendulumController:
             "tickTockDiff": 0.0, "timingStartUtc": 0, "lastCorrectionUtc": 0,
             "elapsedTimeStr": "0d 0h 0m 0s", "driftSph": 0.0, "driftHistory": [0] * 10,
             "lastMinuteSwingCount": 0, "lastHourlySwingCount": 0, "missedBeats": 0,
-            "kp": 0.0002, "ki": 0.00002, "hourlyHistory": hourly_history_deque,
+            "kp": 0.005, "ki": 0.001, "hourlyHistory": hourly_history_deque,
             "lastRateError": 0.0,
             "tickCount": 0,
             "watchdogTriggered": False,
@@ -164,7 +164,6 @@ class PendulumController:
             p2.value(0)
             p3.value(0)
             self.log_msg(f"MOVE: Complete. Position: {self.pendulum_state['currPosIn']:.6f} in.")
-            self.save_state()
             # Clip disturbance: reset beat reference so the gap isn't counted as drift
             self.pendulum_state["lastSwingTimeUs"] = 0
             self._motor_stop_utc = time.time()
@@ -182,13 +181,6 @@ class PendulumController:
             
             # Initialization case
             if self.pendulum_state["lastSwingTimeUs"] == 0:
-                # If recovering from a motor-stop disturbance, shift timingStartUtc forward
-                # by however long the pendulum was off-beam so totalDriftS stays accurate.
-                if self._motor_stop_utc > 0 and self.pendulum_state["timingStartUtc"] > 0:
-                    gap = time.time() - self._motor_stop_utc
-                    self.pendulum_state["timingStartUtc"] += gap
-                    self.log_msg(f"MOVE: Shifted timing start by {gap}s to absorb disturbance gap.")
-                    self._motor_stop_utc = 0
                 self.pendulum_state["lastSwingTimeUs"] = current_time
                 continue
                 
@@ -291,8 +283,8 @@ class PendulumController:
         self.pendulum_state["lastRateError"] = rate_error
 
         if self.pendulum_state["correctionActive"]:
-            p_move = rate_error * self.pendulum_state.get('kp', 0.0002)
-            i_move = self.pendulum_state["totalDriftS"] * self.pendulum_state.get('ki', 0.00002)
+            p_move = rate_error * self.pendulum_state.get('kp', 0.005)
+            i_move = self.pendulum_state["totalDriftS"] * self.pendulum_state.get('ki', 0.001)
             self.log_msg(f"CORRECTION: Total Error: {self.pendulum_state['totalDriftS']:.2f}s. Rate Error: {rate_error:.2f} swings/hr.")
             
             calculated_move = p_move + i_move

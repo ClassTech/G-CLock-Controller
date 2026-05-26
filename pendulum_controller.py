@@ -16,15 +16,12 @@ STEPPER_PINS = [Pin(3, Pin.OUT), Pin(4, Pin.OUT), Pin(5, Pin.OUT), Pin(6, Pin.OU
 STEPS_PER_INCH = 6400
 STEP_DELAY_MS = 10
 MAX_TOTAL_TRAVEL_INCH = 0.2
-# Half-step sequence for bipolar stepper via DRV8833 [AIN1, AIN2, BIN1, BIN2]
+# Full-step dual-phase sequence for bipolar stepper via DRV8833 [AIN1, AIN2, BIN1, BIN2]
+# Both coils energized every step — maximum torque, matches STEPS_PER_INCH = 6400
 STEP_SEQUENCE = [
-    [1, 0, 0, 0],
     [1, 0, 1, 0],
-    [0, 0, 1, 0],
     [0, 1, 1, 0],
-    [0, 1, 0, 0],
     [0, 1, 0, 1],
-    [0, 0, 0, 1],
     [1, 0, 0, 1],
 ]
 
@@ -142,7 +139,7 @@ class PendulumController:
         if remaining <= 0:
             return False
         p0, p1, p2, p3 = STEPPER_PINS
-        pos = (self.pendulum_state["stepperPosition"] + self.pendulum_state["stepDir"]) % 8
+        pos = (self.pendulum_state["stepperPosition"] + self.pendulum_state["stepDir"]) % 4
         s = STEP_SEQUENCE[pos]
         p0.value(s[0])
         p1.value(s[1])

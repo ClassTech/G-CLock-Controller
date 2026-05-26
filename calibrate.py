@@ -13,8 +13,7 @@ STEPPER_PINS   = [Pin(3,Pin.OUT), Pin(4,Pin.OUT), Pin(5,Pin.OUT), Pin(6,Pin.OUT)
 STEPS_PER_INCH = 6400
 STEP_DELAY_MS  = 10
 STEP_SEQUENCE  = [
-    [1,0,0,0],[1,0,1,0],[0,0,1,0],[0,1,1,0],
-    [0,1,0,0],[0,1,0,1],[0,0,0,1],[1,0,0,1],
+    [1,0,1,0],[0,1,1,0],[0,1,0,1],[1,0,0,1],
 ]
 IR_PIN       = 21
 DEBOUNCE_US  = 400_000
@@ -80,7 +79,7 @@ def step_once():
     if cal["stepsLeft"] <= 0:
         return False
     p0,p1,p2,p3 = STEPPER_PINS
-    pos = (cal["seqPos"] + cal["stepDir"]) % 8
+    pos = (cal["seqPos"] + cal["stepDir"]) % 4
     sv  = STEP_SEQUENCE[pos]
     p0.value(sv[0]); p1.value(sv[1]); p2.value(sv[2]); p3.value(sv[3])
     cal["seqPos"]    = pos

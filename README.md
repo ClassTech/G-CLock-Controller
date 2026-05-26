@@ -1,7 +1,3 @@
-Here is the updated `README.md` with the correction regarding the adjustment mechanism.
-
------
-
 # ESP32 Pendulum Clock Regulator
 
 This project implements an IoT-based regulation system for mechanical pendulum clocks (e.g., grandfather/longcase clocks). It uses a MicroPython-based ESP32 controller to monitor the clock's beat via an IR sensor, calculate drift against an NTP time server, and physically adjust the effective length of the pendulum by moving a clip up and down the suspension spring using a stepper motor.
@@ -23,7 +19,7 @@ This project implements an IoT-based regulation system for mechanical pendulum c
 
 Based on the pin configurations in `pendulum_controller.py`:
 
-  * **Microcontroller:** ESP32 (running MicroPython).
+  * **Microcontroller:** Seeed XIAO ESP32C3 (running MicroPython).
   * **Sensor:** TCRT5000 IR sensor (signal wire connected to **Pin 21**). The signal goes **LOW** (active low) when the pendulum passes through the beam; the ESP32C3's internal pull-up is enabled. Wiring:
       * Yellow — signal (Pin 21, active LOW)
       * Purple — Vcc (3.3 V via 220 Ω resistor)
@@ -44,11 +40,12 @@ Based on the pin configurations in `pendulum_controller.py`:
   * `webserver.py`: A custom, memory-efficient HTTP server handling API requests and serving the frontend.
   * `index.html`: The frontend dashboard (embedded CSS/JS).
   * `wifi.config`: Wi-Fi credentials and hostname (plain text, key=value format).
+  * `calibrate.py`: Standalone clip calibration tool. Steps the motor through a range of positions and records beat data at each point via a web UI. Deploy separately from the main controller.
   * `pendulum_state.json`: Stores persistent runtime data (stepper position, history, PI values).
 
 ## Installation & Setup
 
-1.  **Flash MicroPython:** Ensure your ESP32 is flashed with a recent version of MicroPython.
+1.  **Flash MicroPython:** Ensure your XIAO ESP32C3 is flashed with a recent version of MicroPython.
 
 2.  **Configure Credentials:**
     Edit `wifi.config` and set your Wi-Fi details:
@@ -92,12 +89,18 @@ The system is optimized for the constrained memory of the ESP32:
 
 The web server exposes several JSON endpoints:
 
-  * `GET /status`: Returns current telemetry (position, drift, beat info).
+  * `GET /status`: Returns current telemetry (position, drift, beat info, PI state).
   * `GET /history`: Returns hourly historical data for the chart.
   * `GET /log`: Returns recent system logs.
+  * `GET /beat`: Lightweight tick-count poll (`{"t": N}`) for fast UI updates.
+  * `GET /debug`: Returns uptime and free memory.
   * `POST /move`: Accepts JSON `{"inches": 0.001}` to move the motor.
-  * `POST /updateTuning`: Accepts JSON `{"kp": 0.0002, "ki": 0.00002}`.
+  * `POST /setZero`: Resets the current position to 0.
+  * `POST /resetTiming`: Clears drift history and restarts the timing session.
+  * `POST /updateTuning`: Accepts JSON `{"kp": 0.005, "ki": 0.001}`.
   * `POST /toggleCorrections`: Accepts JSON `{"active": true}`.
+  * `POST /upload-file`: Uploads a file to the filesystem. Requires `X-Target-Path` header and raw file body.
+  * `POST /restart`: Saves state and reboots the controller.
 
 ## License
 

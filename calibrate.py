@@ -173,16 +173,19 @@ svg{display:block;width:100%;height:260px;background:#0f3460;border-radius:4px}
  <button class="sec" onclick="api('/stop')">Stop</button>
  <button id="bup" class="sec" onclick="api('/moveUp')">&#9650; Up</button>
  <button id="bdn" class="sec" onclick="api('/moveDown')">&#9660; Down</button>
+ <a href="/download-csv" download="calibration.csv"><button class="sec">&#11015; CSV</button></a>
  <br><br>
- <label>Step (in)<input type="number" id="ss" step="0.03125" value="0.03125"></label>
- <label>Window (min)<input type="number" id="wm" step="1" value="60"></label>
- <label>Num steps<input type="number" id="ns" step="1" min="0" value="0"></label>
+ <label>Step (in)<input type="number" id="ss" step="0.03125" value="0.03125" oninput="dirty.ss=1"></label>
+ <label>Window (min)<input type="number" id="wm" step="1" value="60" oninput="dirty.wm=1"></label>
+ <label>Num steps<input type="number" id="ns" step="1" min="0" value="0" oninput="dirty.ns=1"></label>
  <button class="sec" onclick="setcfg()">Apply</button>
 </div>
 <div class="card" id="lb"></div>
 <script>
+var dirty={}
 function api(u){fetch(u,{method:'POST'}).then(refresh)}
 function setcfg(){
+ dirty={}
  fetch('/config',{method:'POST',
   headers:{'Content-Type':'application/json'},
   body:JSON.stringify({step:+document.getElementById('ss').value,
@@ -208,13 +211,12 @@ function refresh(){
    ' &nbsp; <b>Window:</b> '+hms(d.windowSecs)+
    ' &nbsp; <b>Progress:</b> '+d.stepsDone+'/'+(d.numSteps||'&#8734;')
   document.getElementById('lb').textContent=d.log.slice(-20).join('\n')
-  var ae=document.activeElement
   var ss=document.getElementById('ss')
   var wm=document.getElementById('wm')
   var ns=document.getElementById('ns')
-  if(ae!==ss)ss.value=d.stepSize
-  if(ae!==wm)wm.value=(d.windowSecs/60).toFixed(0)
-  if(ae!==ns)ns.value=d.numSteps
+  if(!dirty.ss)ss.value=d.stepSize
+  if(!dirty.wm)wm.value=(d.windowSecs/60).toFixed(0)
+  if(!dirty.ns)ns.value=d.numSteps
   var up=document.getElementById('bup')
   var dn=document.getElementById('bdn')
   up.style.background=d.lastDirection==='up'?'#2e7d32':'#0f3460'
@@ -316,6 +318,17 @@ def handle(conn):
             conn.write(b'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n')
             conn.write(body.encode())
 
+        elif path == '/download-csv':
+            try:
+                conn.write(b'HTTP/1.0 200 OK\r\nContent-Type: text/csv\r\nContent-Disposition: attachment; filename="calibration.csv"\r\n\r\n')
+                with open('calibration.csv', 'r') as f:
+                    while True:
+                        chunk = f.read(512)
+                        if not chunk: break
+                        conn.write(chunk.encode())
+            except OSError:
+                conn.write(b'HTTP/1.0 404 Not Found\r\n\r\nNo data yet.')
+
         elif method == 'POST':
             body_parts = req.split('\r\n\r\n', 1)
             payload = {}
@@ -328,8 +341,18 @@ def handle(conn):
                     cal["stepsDone"]    = 0
                     cal["measurements"] = []
                     try:
-                        with open("calibration.csv", "w") as f:
-                            f.write("time,position_in,beats,avg_beat_s\n")
+                        try:
+                            open("calibration.csv", "r").close()
+                            existing = True
+                        except OSError:
+                            existing = False
+                        with open("calibration.csv", "a") as f:
+                            if not existing:
+                                f.write("time,position_in,beats,avg_beat_s\n")
+                            else:
+                                t = time.localtime()
+                                f.write("\n# Run {:04}-{:02}-{:02} {:02}:{:02}:{:02}\n".format(
+                                    t[0],t[1],t[2],t[3],t[4],t[5]))
                     except Exception as e:
                         log("CSV init error: {}".format(e))
                     start_window()

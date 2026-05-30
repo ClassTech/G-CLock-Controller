@@ -109,6 +109,10 @@ def handle_history_request(client, pendulum_state, **kwargs):
     history_list = list(pendulum_state.get("hourlyHistory", []))
     send_response(client, ujson.dumps(history_list))
 
+def handle_dot_history_request(client, pendulum_state, **kwargs):
+    dot_list = list(pendulum_state.get("dotHistory", []))
+    send_response(client, ujson.dumps(dot_list))
+
 def handle_file_upload(client, headers_raw, log_func, **kwargs):
     headers = headers_raw.split(b'\r\n')
     path_header = [h for h in headers if h.lower().startswith(b'x-target-path:')]
@@ -228,6 +232,7 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         ('GET', '/status'): ('handler', handle_status_request),
         ('GET', '/log'): ('handler', handle_log_request),
         ('GET', '/history'): ('handler', handle_history_request),
+        ('GET', '/dot-history'): ('handler', handle_dot_history_request),
         ('POST', '/upload-file'): ('handler', handle_file_upload),
         ('POST', '/restart'): ('handler', handle_restart_request),
         ('POST', '/move'): ('handler', handle_move_request),
@@ -239,6 +244,7 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         ('OPTIONS', '/status'): ('handler', handle_options_request),
         ('OPTIONS', '/log'): ('handler', handle_options_request),
         ('OPTIONS', '/history'): ('handler', handle_options_request),
+        ('OPTIONS', '/dot-history'): ('handler', handle_options_request),
         ('OPTIONS', '/move'): ('handler', handle_options_request),
         ('OPTIONS', '/setZero'): ('handler', handle_options_request),
         ('OPTIONS', '/resetTiming'): ('handler', handle_options_request),

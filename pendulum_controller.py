@@ -458,9 +458,6 @@ class PendulumController:
             self.pendulum_state["timingStartUtc"] = now
         self.pendulum_state["lastCorrectionUtc"] = now
         self.last_correction_hour = time.localtime(now)[3]
-        self.pendulum_state["dotWindowStartMs"] = time.ticks_ms()
-        self.pendulum_state["dotWindowStartSwing"] = 0
-        self.log_msg("DOT: Initial window started.")
 
         _thread.start_new_thread(webserver.runServer, 
                                (self.pendulum_state, self.log_buffer, self.log_msg, self.save_state))

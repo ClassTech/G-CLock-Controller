@@ -241,7 +241,7 @@ class PendulumController:
                         avg_tt = 0.0
                         if tc > 0 and tok > 0:
                             avg_tt = (ps["dotWindowTickSum"] / tc - ps["dotWindowTockSum"] / tok) * 1000.0
-                        ps["dotHistory"].append({"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt})
+                        ps["dotHistory"].append({"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"]})
                         self.log_msg(f"DOT: {elapsed_ms/1000.0:.3f}s elapsed, avgTT:{avg_tt:.3f}ms")
                         ps["dotWindowStartSwing"] = -1
 

@@ -266,20 +266,10 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         'save_state_func': save_state_func
     }
 
-    # FIX: Track last IP to avoid console spam
-    last_client_ip = None
-
     while True:
         client = None
         try:
             client, client_addr = s.accept()
-            
-            # FIX: Only print if the IP address changes
-            current_ip = client_addr[0]
-            if current_ip != last_client_ip:
-                print(f"New Web Client: {current_ip}")
-                last_client_ip = current_ip
-            
             client.settimeout(3.0)
             
             headers_raw = b""

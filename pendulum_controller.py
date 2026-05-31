@@ -8,6 +8,7 @@ from machine import Pin
 import ucollections
 import ujson
 import gc
+import esp32
 
 # --- Constants ---
 # DRV8833 bipolar driver: [AIN1, AIN2, BIN1, BIN2] → GPIO3-6
@@ -241,7 +242,7 @@ class PendulumController:
                         avg_tt = 0.0
                         if tc > 0 and tok > 0:
                             avg_tt = (ps["dotWindowTickSum"] / tc - ps["dotWindowTockSum"] / tok) * 1000.0
-                        ps["dotHistory"].append({"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"]})
+                        ps["dotHistory"].append({"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"], "temp": esp32.raw_temperature()})
                         self.log_msg(f"DOT: {elapsed_ms/1000.0:.3f}s elapsed, avgTT:{avg_tt:.3f}ms")
                         ps["dotWindowStartSwing"] = -1
 

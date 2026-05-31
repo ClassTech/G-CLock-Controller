@@ -118,7 +118,7 @@
     let lastChartUpdateTime = 0;
     let chartData = { timestamps: [], position: [], totalDrift: [], driftRate: [] };
     const chartColors = { position: '#38bdf8', totalDrift: '#f87171', driftRate: '#4ade80' };
-    const dotChartColors = { elapsed: '#38bdf8', avgTT: '#fb923c' };
+    const dotChartColors = { elapsed: '#38bdf8', avgTT: '#fb923c', temp: '#f43f5e' };
     let dotChartData = [];
     
     let lastTickCount = -1;
@@ -445,7 +445,7 @@
         const canvas = document.getElementById('tod-chart');
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
-        const padding = { top: 30, right: 20, bottom: 50, left: 55 };
+        const padding = { top: 30, right: 55, bottom: 50, left: 55 };
         const chartW = width - padding.left - padding.right;
         const chartH = height - padding.top - padding.bottom;
 
@@ -460,27 +460,46 @@
             return;
         }
 
-        const absVals = pts.map(p => Math.abs(p.avgTT));
-        const yAxis = calculateNiceRange(Math.min(...absVals), Math.max(...absVals));
+        const tempPts = pts.filter(p => typeof p.temp === 'number' && isFinite(p.temp));
+
+        const absVals  = pts.map(p => Math.abs(p.avgTT));
+        const leftAxis = calculateNiceRange(Math.min(...absVals), Math.max(...absVals));
+        const rightAxis = tempPts.length > 0
+            ? calculateNiceRange(Math.min(...tempPts.map(p => p.temp)), Math.max(...tempPts.map(p => p.temp)))
+            : null;
 
         const xCoord = h => padding.left + (h / 24) * chartW;
-        const yCoord = val => {
-            const r = yAxis.max - yAxis.min;
+        const yCoordL = val => {
+            const r = leftAxis.max - leftAxis.min;
             if (r === 0) return padding.top + chartH / 2;
-            return padding.top + (1 - (val - yAxis.min) / r) * chartH;
+            return padding.top + (1 - (val - leftAxis.min) / r) * chartH;
+        };
+        const yCoordR = (val, axis) => {
+            const r = axis.max - axis.min;
+            if (r === 0) return padding.top + chartH / 2;
+            return padding.top + (1 - (val - axis.min) / r) * chartH;
         };
 
         ctx.font = '12px sans-serif';
         ctx.lineWidth = 1;
 
-        // Horizontal grid + y-axis labels
+        // Horizontal grid + left y-axis labels
         ctx.strokeStyle = '#e2e8f0';
-        for (let val = yAxis.min; val <= yAxis.max + yAxis.step * 0.01; val += yAxis.step) {
-            const y = yCoord(val);
+        for (let val = leftAxis.min; val <= leftAxis.max + leftAxis.step * 0.01; val += leftAxis.step) {
+            const y = yCoordL(val);
             ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(padding.left + chartW, y); ctx.stroke();
             ctx.fillStyle = '#64748b';
             ctx.textAlign = 'right';
             ctx.fillText(val.toFixed(0), padding.left - 6, y + 4);
+        }
+
+        // Right y-axis labels (temperature)
+        if (rightAxis) {
+            for (let val = rightAxis.min; val <= rightAxis.max + rightAxis.step * 0.01; val += rightAxis.step) {
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'left';
+                ctx.fillText(val.toFixed(0) + '°F', padding.left + chartW + 6, yCoordR(val, rightAxis) + 4);
+            }
         }
 
         // Vertical grid at 6-hour marks + x-axis labels
@@ -497,21 +516,38 @@
         ctx.fillStyle = '#64748b';
         ctx.textAlign = 'left';
         ctx.fillText('|Avg Tick−Tock| (ms)', padding.left, padding.top - 10);
+        if (rightAxis) {
+            ctx.textAlign = 'right';
+            ctx.fillText('Temp (°F)', width - padding.right, padding.top - 10);
+        }
         ctx.textAlign = 'center';
         ctx.fillText('Hour of Day (local)', padding.left + chartW / 2, height - padding.bottom + 38);
 
-        // Dots — convert MicroPython epoch (2000) to JS epoch (1970) by adding 946684800
+        // Tick-tock dots
         ctx.fillStyle = dotChartColors.avgTT;
         pts.forEach(p => {
             const d = new Date((p.ts + 946684800) * 1000);
             const hour = d.getHours() + d.getMinutes() / 60;
             ctx.beginPath();
-            ctx.arc(xCoord(hour), yCoord(Math.abs(p.avgTT)), 4, 0, Math.PI * 2);
+            ctx.arc(xCoord(hour), yCoordL(Math.abs(p.avgTT)), 4, 0, Math.PI * 2);
             ctx.fill();
         });
 
-        document.getElementById('tod-chart-legend').innerHTML = `
-            <div class="legend-item"><span class="legend-color" style="background:${dotChartColors.avgTT};"></span>${pts.length} windows</div>`;
+        // Temperature dots
+        if (rightAxis) {
+            ctx.fillStyle = dotChartColors.temp;
+            tempPts.forEach(p => {
+                const d = new Date((p.ts + 946684800) * 1000);
+                const hour = d.getHours() + d.getMinutes() / 60;
+                ctx.beginPath();
+                ctx.arc(xCoord(hour), yCoordR(p.temp, rightAxis), 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        const legendHtml = `<div class="legend-item"><span class="legend-color" style="background:${dotChartColors.avgTT};"></span>|Tick−Tock| (ms)</div>`
+            + (rightAxis ? `<div class="legend-item"><span class="legend-color" style="background:${dotChartColors.temp};"></span>Temp (°F)</div>` : '');
+        document.getElementById('tod-chart-legend').innerHTML = legendHtml;
     }
 
     async function loadHistory() {

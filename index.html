@@ -353,7 +353,9 @@
         const elapsedVals = dotChartData.map(p => p.elapsed);
         const avgTTVals   = dotChartData.map(p => p.avgTT);
 
-        const xAxis     = calculateNiceRange(Math.min(...posVals),     Math.max(...posVals));
+        const posMin = Math.min(...posVals);
+        const posMax = Math.max(...posVals);
+        const xAxis  = { min: posMin, max: posMax, step: calculateNiceRange(posMin, posMax).step };
         const leftAxis  = calculateNiceRange(Math.min(...elapsedVals), Math.max(...elapsedVals));
         const rightAxis = calculateNiceRange(Math.min(...avgTTVals),   Math.max(...avgTTVals));
 

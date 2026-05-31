@@ -349,9 +349,17 @@
             return;
         }
 
-        const posVals     = dotChartData.map(p => p.pos);
-        const elapsedVals = dotChartData.map(p => p.elapsed);
-        const avgTTVals   = dotChartData.map(p => p.avgTT);
+        const validData   = dotChartData.filter(p => typeof p.pos === 'number' && isFinite(p.pos));
+        if (validData.length === 0) {
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Waiting for first measurement with clip position data', width / 2, height / 2);
+            return;
+        }
+        const posVals     = validData.map(p => p.pos);
+        const elapsedVals = validData.map(p => p.elapsed);
+        const avgTTVals   = validData.map(p => p.avgTT);
 
         const posMin = Math.min(...posVals);
         const posMax = Math.max(...posVals);
@@ -404,7 +412,7 @@
         ctx.fillText('Clip Position (in)', padding.left + chartW / 2, height - padding.bottom + 36);
 
         // Dots
-        dotChartData.forEach(p => {
+        validData.forEach(p => {
             const x = xCoord(p.pos);
             ctx.fillStyle = dotChartColors.elapsed;
             ctx.beginPath(); ctx.arc(x, yCoord(p.elapsed, leftAxis), 4, 0, Math.PI * 2); ctx.fill();
@@ -412,7 +420,7 @@
             ctx.beginPath(); ctx.arc(x, yCoord(p.avgTT, rightAxis), 4, 0, Math.PI * 2); ctx.fill();
         });
 
-        const last = dotChartData[dotChartData.length - 1];
+        const last = validData[validData.length - 1];
         document.getElementById('dot-chart-legend').innerHTML = `
             <div class="legend-item"><span class="legend-color" style="background:${dotChartColors.elapsed};"></span>Elapsed: ${last.elapsed.toFixed(3)} s</div>
             <div class="legend-item"><span class="legend-color" style="background:${dotChartColors.avgTT};"></span>Avg Tick−Tock: ${last.avgTT.toFixed(3)} ms</div>`;

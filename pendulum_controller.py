@@ -236,15 +236,22 @@ class PendulumController:
                         ps["dotWindowTockSum"] += beat_duration
                         ps["dotWindowTockCount"] += 1
                     if ps["swingCount"] - ps["dotWindowStartSwing"] >= 3550:
+                        ps["dotWindowStartSwing"] = -1
                         elapsed_ms = time.ticks_diff(time.ticks_ms(), ps["dotWindowStartMs"])
                         tc = ps["dotWindowTickCount"]
                         tok = ps["dotWindowTockCount"]
                         avg_tt = 0.0
                         if tc > 0 and tok > 0:
                             avg_tt = (ps["dotWindowTickSum"] / tc - ps["dotWindowTockSum"] / tok) * 1000.0
-                        ps["dotHistory"].append({"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"], "temp": esp32.raw_temperature()})
+                        try:
+                            temp = esp32.mcu_temperature() * 9 / 5 + 32
+                        except:
+                            temp = None
+                        entry = {"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"]}
+                        if temp is not None:
+                            entry["temp"] = temp
+                        ps["dotHistory"].append(entry)
                         self.log_msg(f"DOT: {elapsed_ms/1000.0:.3f}s elapsed, avgTT:{avg_tt:.3f}ms")
-                        ps["dotWindowStartSwing"] = -1
 
                 is_valid_beat = True
                 

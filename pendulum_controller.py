@@ -8,7 +8,6 @@ from machine import Pin, WDT
 import ucollections
 import ujson
 import gc
-import esp32
 
 # --- Constants ---
 # DRV8833 bipolar driver: [AIN1, AIN2, BIN1, BIN2] → GPIO3-6
@@ -101,7 +100,6 @@ class PendulumController:
                     "kp": self.pendulum_state["kp"],
                     "ki": self.pendulum_state["ki"],
                     "hourlyHistory": history_list,
-                    "dotHistory": list(self.pendulum_state["dotHistory"]),
                 }
                 ujson.dump(persistent_state, f)
                 self.log_msg("STATE: Periodic state save complete.")
@@ -122,10 +120,6 @@ class PendulumController:
             "tickCount": 0,
             "watchdogTriggered": False,
             "stepsRemaining": 0, "stepDir": 1,
-            "dotWindowPending": False, "dotWindowStartMs": 0, "dotWindowStartSwing": -1,
-            "dotWindowTickSum": 0.0, "dotWindowTickCount": 0,
-            "dotWindowTockSum": 0.0, "dotWindowTockCount": 0,
-            "dotHistory": ucollections.deque((), 50),
         }
         try:
             with open(STATE_FILE, "r") as f:
@@ -136,10 +130,7 @@ class PendulumController:
                 loaded_history = loaded.get("hourlyHistory", [])
                 for entry in loaded_history:
                     self.pendulum_state["hourlyHistory"].append(entry)
-                loaded_dot = loaded.get("dotHistory", [])
-                for entry in loaded_dot:
-                    self.pendulum_state["dotHistory"].append(entry)
-                self.log_msg(f"State loaded. Restored {len(loaded_history)} hourly and {len(loaded_dot)} dot history points.")
+                self.log_msg(f"State loaded. Restored {len(loaded_history)} hourly history points.")
         except (OSError, ValueError):
             self.log_msg("State file not found/corrupt. Initializing with default state.")
 
@@ -227,32 +218,6 @@ class PendulumController:
                 self.pendulum_state["watchdogTriggered"] = False
                 self.last_valid_beat_time = time.time()
 
-                ps = self.pendulum_state
-                if ps["dotWindowStartSwing"] >= 0:
-                    if ps["swingCount"] % 2 == 1:
-                        ps["dotWindowTickSum"] += beat_duration
-                        ps["dotWindowTickCount"] += 1
-                    else:
-                        ps["dotWindowTockSum"] += beat_duration
-                        ps["dotWindowTockCount"] += 1
-                    if ps["swingCount"] - ps["dotWindowStartSwing"] >= 3550:
-                        ps["dotWindowStartSwing"] = -1
-                        elapsed_ms = time.ticks_diff(time.ticks_ms(), ps["dotWindowStartMs"])
-                        tc = ps["dotWindowTickCount"]
-                        tok = ps["dotWindowTockCount"]
-                        avg_tt = 0.0
-                        if tc > 0 and tok > 0:
-                            avg_tt = (ps["dotWindowTickSum"] / tc - ps["dotWindowTockSum"] / tok) * 1000.0
-                        try:
-                            temp = esp32.mcu_temperature() * 9 / 5 + 32
-                        except:
-                            temp = None
-                        entry = {"ts": time.time(), "elapsed": elapsed_ms / 1000.0, "avgTT": avg_tt, "pos": ps["currPosIn"]}
-                        if temp is not None:
-                            entry["temp"] = temp
-                        ps["dotHistory"].append(entry)
-                        self.log_msg(f"DOT: {elapsed_ms/1000.0:.3f}s elapsed, avgTT:{avg_tt:.3f}ms")
-
                 is_valid_beat = True
                 
             elif beat_duration >= MAX_VALID_BEAT_S:
@@ -337,7 +302,6 @@ class PendulumController:
         self.pendulum_state["lastHourlySwingCount"] = self.pendulum_state["swingCount"]
         gc.collect()
         self.log_msg(f"MEM: {gc.mem_free()} bytes free")
-        self.pendulum_state["dotWindowPending"] = True
 
     def handle_rolling_drift_calc(self, current_utc):
         if current_utc - self.last_drift_calc_utc >= 60:
@@ -398,16 +362,6 @@ class PendulumController:
                 if self._step_once():
                     time.sleep_ms(STEP_DELAY_MS)
                 else:
-                    if self.pendulum_state.get("dotWindowPending", False):
-                        ps = self.pendulum_state
-                        ps["dotWindowPending"] = False
-                        ps["dotWindowStartMs"] = time.ticks_ms()
-                        ps["dotWindowStartSwing"] = ps["swingCount"]
-                        ps["dotWindowTickSum"] = 0.0
-                        ps["dotWindowTickCount"] = 0
-                        ps["dotWindowTockSum"] = 0.0
-                        ps["dotWindowTockCount"] = 0
-                        self.log_msg("DOT: Window started.")
                     time.sleep_ms(20)
                 
             except Exception as e:

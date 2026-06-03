@@ -315,10 +315,9 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
 
                     elif route_type == 'handler':
                         handler_func = handler_or_file
-                        request_context = dict(context)
-                        request_context['headers_raw'] = headers_raw
+                        context['headers_raw'] = headers_raw
                         try:
-                            handler_func(client, **request_context)
+                            handler_func(client, **context)
                         except Exception as handler_error:
                             log_func(f"Handler error for {path_str}: {handler_error}")
                             client.send(HTTP_400)

@@ -336,6 +336,7 @@ class PendulumController:
         self.pendulum_state["lastCorrectionUtc"] = current_utc
         self.pendulum_state["lastHourlySwingCount"] = self.pendulum_state["swingCount"]
         gc.collect()
+        self.log_msg(f"MEM: {gc.mem_free()} bytes free")
         self.pendulum_state["dotWindowPending"] = True
 
     def handle_rolling_drift_calc(self, current_utc):

@@ -252,13 +252,6 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
         ('OPTIONS', '/toggleCorrections'): ('handler', handle_options_request),
     }
 
-    addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
-    s = socket.socket()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(addr)
-    s.listen(3)
-    log_func(f"Web server listening on {addr}")
-
     context = {
         'pendulum_state': pendulum_state,
         'log_buffer': log_buffer,
@@ -267,59 +260,85 @@ def runServer(pendulum_state, log_buffer, log_func, save_state_func):
     }
 
     while True:
-        client = None
+        s = None
         try:
-            client, client_addr = s.accept()
-            client.settimeout(3.0)
-            
-            headers_raw = b""
-            while True:
-                line = client.readline()
-                if not line or line == b'\r\n':
-                    break
-                headers_raw += line
-            
-            if not headers_raw:
-                continue
-            
-            request_line = headers_raw.split(b'\r\n')[0]
-            try:
-                method, path, _ = request_line.split(b' ', 2)
-                method_str = method.decode('utf-8')
-                path_str = path.decode('utf-8')
-            except Exception as parse_error:
-                log_func(f"Request parse error: {parse_error}")
-                client.send(HTTP_400)
-                continue
-            
-            route_key = (method_str, path_str)
-            route_info = routes.get(route_key)
-            
-            if route_info:
-                route_type, handler_or_file = route_info[0], route_info[1]
-                
-                if route_type == 'static':
-                    file_path, content_type = route_info[1], route_info[2]
-                    serve_static_file(client, file_path, content_type)
-                    
-                elif route_type == 'handler':
-                    handler_func = handler_or_file
-                    request_context = dict(context)
-                    request_context['headers_raw'] = headers_raw
-                    try:
-                        handler_func(client, **request_context)
-                    except Exception as handler_error:
-                        log_func(f"Handler error for {path_str}: {handler_error}")
-                        client.send(HTTP_400)
-            else:
-                client.send(HTTP_404)
-                
+            addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
+            s = socket.socket()
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(addr)
+            s.listen(3)
+            log_func("Web server listening on port 80")
         except Exception as e:
-            log_func(f"Web server error: {e}")
-        finally:
-            if client:
+            log_func(f"Web server socket error: {e}. Retrying in 10s.")
+            if s:
+                try: s.close()
+                except: pass
+            time.sleep(10)
+            continue
+
+        consecutive_errors = 0
+        while consecutive_errors < 10:
+            client = None
+            try:
+                client, client_addr = s.accept()
+                client.settimeout(3.0)
+
+                headers_raw = b""
+                while True:
+                    line = client.readline()
+                    if not line or line == b'\r\n':
+                        break
+                    headers_raw += line
+
+                if not headers_raw:
+                    continue
+
+                request_line = headers_raw.split(b'\r\n')[0]
                 try:
-                    client.close()
-                except:
-                    pass
-            gc.collect()
+                    method, path, _ = request_line.split(b' ', 2)
+                    method_str = method.decode('utf-8')
+                    path_str = path.decode('utf-8')
+                except Exception as parse_error:
+                    log_func(f"Request parse error: {parse_error}")
+                    client.send(HTTP_400)
+                    continue
+
+                route_key = (method_str, path_str)
+                route_info = routes.get(route_key)
+
+                if route_info:
+                    route_type, handler_or_file = route_info[0], route_info[1]
+
+                    if route_type == 'static':
+                        file_path, content_type = route_info[1], route_info[2]
+                        serve_static_file(client, file_path, content_type)
+
+                    elif route_type == 'handler':
+                        handler_func = handler_or_file
+                        request_context = dict(context)
+                        request_context['headers_raw'] = headers_raw
+                        try:
+                            handler_func(client, **request_context)
+                        except Exception as handler_error:
+                            log_func(f"Handler error for {path_str}: {handler_error}")
+                            client.send(HTTP_400)
+                else:
+                    client.send(HTTP_404)
+
+            except Exception as e:
+                log_func(f"Web server error: {e}")
+                consecutive_errors += 1
+            else:
+                consecutive_errors = 0
+            finally:
+                if client:
+                    try:
+                        client.close()
+                    except:
+                        pass
+                gc.collect()
+
+        if s:
+            try: s.close()
+            except: pass
+        log_func("Web server restarting socket after errors.")

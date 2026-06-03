@@ -4,7 +4,7 @@
 import _thread
 import time
 import ntptime
-from machine import Pin
+from machine import Pin, WDT
 import ucollections
 import ujson
 import gc
@@ -379,9 +379,10 @@ class PendulumController:
     def main_loop(self):
         self.log_msg("Main loop started.")
         self.last_drift_calc_utc = time.time()
-        
+        wdt = WDT(timeout=30000)
         while True:
             try:
+                wdt.feed()
                 self.handle_tick_processing()
                 current_utc = time.time()
                 current_tuple = time.localtime(current_utc)
